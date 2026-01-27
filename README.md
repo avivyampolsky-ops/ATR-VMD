@@ -27,6 +27,24 @@ To build and run ATR-VMD, you need the following:
     *   `pybind11` (for building C++ extensions)
     *   `setuptools`
 
+## Docker Support (Jetson Orin)
+
+A `Dockerfile` and `install.sh` are provided for building and running the environment on Jetson Orin (JetPack 6.x).
+
+1.  **Build and Run**:
+    ```bash
+    chmod +x install.sh
+    ./install.sh run
+    ```
+    This script builds the Docker image `atr-vmd-jetson` and runs it with GPU access (`--runtime nvidia`) and network access.
+
+2.  **Manual Build**:
+    ```bash
+    docker build -t atr-vmd-jetson .
+    ```
+
+*Note: The Dockerfile uses `nvcr.io/nvidia/l4t-pytorch:r36.2.0-pth2.3-py3`. Ensure your JetPack version matches or update the base image tag.*
+
 ## Installation & Build
 
 The performance-critical components are implemented in C++. You must compile these extensions before running the application.
@@ -72,7 +90,7 @@ Controls how the image is stabilized against a reference frame.
 *   `downscale_factor`: (float) Scale factor for registration calculation (e.g., 0.75).
 *   `reference_window_ms`: (float) Time in ms to keep a reference frame before re-anchoring.
 *   **Homography Settings**:
-    *   `feature_extractor`: "FAST_BRIEF", "ORB", "AKAZE", "BRISK", "SIFT".
+    *   `feature_extractor`: "FAST_BRIEF", "ORB", "AKAZE", "BRISK", "SIFT", "CUDA_SIFT".
     *   `matcher`: "KNN", "BF" (Brute Force), "FLANN".
     *   `knn_ratio`: (float) Lowe's ratio test threshold.
     *   `ransac_reproj_threshold`: (float) Max reprojection error for RANSAC.
