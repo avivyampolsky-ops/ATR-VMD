@@ -8,6 +8,8 @@ class FeatureExtractorType(Enum):
     AKAZE = "akaze"
     BRISK = "brisk"
     SIFT = "sift"
+    CUDA_SIFT = "cuda_sift" # CudaSift integration
+    POP_SIFT = "pop_sift"   # PopSift integration
 
 class FeatureExtractorBase:
     norm_type = cv2.NORM_HAMMING
