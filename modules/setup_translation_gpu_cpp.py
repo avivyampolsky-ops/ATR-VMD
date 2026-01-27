@@ -100,6 +100,18 @@ if cudasift_root.exists():
     cudasift_sources.extend([str(p) for p in cudasift_root.glob("*.cu")])
     cudasift_sources.extend([str(p) for p in cudasift_root.glob("*.cpp") if "mainSift" not in p.name])
 
+# --- 3rdparty: PopSift ---
+popsift_root = Path(__file__).parent / "3rdparty" / "PopSift"
+popsift_sources = []
+if popsift_root.exists():
+    popsift_src_dir = popsift_root / "src"
+    opencv_flags["include_dirs"].append(str(popsift_src_dir))
+
+    popsift_subdir = popsift_src_dir / "popsift"
+    if popsift_subdir.exists():
+        popsift_sources.extend([str(p) for p in popsift_subdir.glob("*.cu")])
+        popsift_sources.extend([str(p) for p in popsift_subdir.glob("*.cpp")])
+
 # --- Custom Build Ext to handle CUDA (.cu) files ---
 class CUDA_build_ext(build_ext_pybind11):
     def build_extensions(self):
@@ -109,53 +121,7 @@ class CUDA_build_ext(build_ext_pybind11):
         except OSError:
             print("CUDA compiler (nvcc) not found. Building without CUDA extension support might fail if .cu files are present.")
 
-        # We need to separate compilation of .cu files
         self.compiler.src_extensions.append(".cu")
-
-        # Save original compile method
-        original_compile = self.compiler.compile
-
-        def unix_compile(obj, src, ext, cc_args, extra_postargs, pp_opts):
-            # For .cu files, use nvcc
-            if os.path.splitext(src)[1] == ".cu":
-                self.compiler.set_executable("compiler_so", "nvcc")
-
-                # Filter flags for nvcc
-                postargs = [
-                    "-c",
-                    "-Xcompiler", "-fPIC", # Pass fPIC to host compiler
-                    "-O3"
-                ]
-                # Add include dirs
-                for inc in self.compiler.include_dirs:
-                    postargs.append(f"-I{inc}")
-
-                # Add macros
-                # (Assuming pp_opts usually contains macros/defs, but distutils is messy.
-                #  We will trust extra_postargs or add basic ones)
-
-                # Compile
-                try:
-                    self.compiler.spawn(["nvcc", src] + postargs + ["-o", obj])
-                except Exception as e:
-                    raise RuntimeError(f"Error compiling {src} with nvcc: {e}")
-                return
-
-            # For other files, use original compiler (gcc/g++)
-            self.compiler.set_executable("compiler_so", "c++") # Enforce C++
-            return original_compile(obj, src, ext, cc_args, extra_postargs, pp_opts)
-
-        # Monkey patch (a bit hacky but common for simple mixed builds)
-        # Better way: override _compile in UnixCCompiler
-        # But `compile` is the high level entry.
-        # Let's try to just intercept specific calls if possible, or use standard override.
-
-        # Actually, simpler approach for `build_ext`: iterate extensions and compile sources manually?
-        # No, let's use the provided hook.
-
-        # NOTE: self.compiler is initialized in `build_extensions`.
-        # But overriding `compile` is method-bound.
-        # Let's override the compiler's `_compile` method if it's a UnixCCompiler
 
         if hasattr(self.compiler, "_compile"):
             original_underscore_compile = self.compiler._compile
@@ -164,17 +130,21 @@ class CUDA_build_ext(build_ext_pybind11):
                 if os.path.splitext(src)[1] == ".cu":
                     # NVCC compilation
                     nvcc_args = ["-c", src, "-o", obj]
-                    # Includes
                     for inc in self.compiler.include_dirs:
                         nvcc_args.extend(["-I", inc])
-                    # Macros?
-                    # cflags?
+
+                    # CudaSift flags
                     nvcc_args.extend(["-Xcompiler", "-fPIC", "-O3"])
 
-                    # Add -DENABLE_CUDASIFT if needed (it is passed in extra_compile_args usually)
+                    # Add macros
                     for arg in extra_postargs:
                         if arg.startswith("-D"):
                             nvcc_args.append(arg)
+
+                    # PopSift specific: it uses __constant__ memory heavily
+                    # We might need architecture flags if it fails, but leaving generic for now.
+                    # It also uses C++11 features in CUDA code.
+                    nvcc_args.append("--std=c++14")
 
                     print(f"Compiling CUDA source: {' '.join(['nvcc'] + nvcc_args)}")
                     self.compiler.spawn(["nvcc"] + nvcc_args)
@@ -188,13 +158,13 @@ class CUDA_build_ext(build_ext_pybind11):
 # Define _translation_gpu_cpp with added sources
 translation_sources = [str(Path(__file__).parent / "translation_gpu_cpp.cpp")]
 translation_sources.extend(cudasift_sources)
+translation_sources.extend(popsift_sources) # Now including PopSift!
 
 extra_compile_args = opencv_flags["extra_compile_args"][:]
 if cudasift_sources:
     extra_compile_args.append("-DENABLE_CUDASIFT")
-
-# Note: We must NOT pass .cu files to the C++ compiler via extra_compile_args or similar.
-# The custom build_ext handles them.
+if popsift_sources:
+    extra_compile_args.append("-DENABLE_POPSIFT")
 
 ext_modules = [
     Pybind11Extension(
