@@ -7,23 +7,39 @@ mkdir -p "$THIRDPARTY_DIR"
 
 echo "=== Setting up Dependencies ==="
 
+# Helper function to check if directory is empty
+is_empty() {
+    [ -z "$(ls -A "$1" 2>/dev/null)" ]
+}
+
 # 1. Fetch CudaSift
-if [ ! -d "$THIRDPARTY_DIR/CudaSift" ]; then
+if [ ! -d "$THIRDPARTY_DIR/CudaSift" ] || is_empty "$THIRDPARTY_DIR/CudaSift"; then
     echo "Cloning CudaSift..."
+    rm -rf "$THIRDPARTY_DIR/CudaSift" # Ensure clean start if empty dir exists
     git clone https://github.com/Celebrandil/CudaSift.git "$THIRDPARTY_DIR/CudaSift"
 else
     echo "CudaSift already present."
 fi
 
-# 2. Fetch PopSift
-if [ ! -d "$THIRDPARTY_DIR/PopSift" ]; then
+# 2. Fetch Popcorn (Required by PopSift)
+if [ ! -d "$THIRDPARTY_DIR/Popcorn" ] || is_empty "$THIRDPARTY_DIR/Popcorn"; then
+    echo "Cloning Popcorn..."
+    rm -rf "$THIRDPARTY_DIR/Popcorn"
+    git clone https://github.com/PopSift/popcorn.git "$THIRDPARTY_DIR/Popcorn"
+else
+    echo "Popcorn already present."
+fi
+
+# 3. Fetch PopSift
+if [ ! -d "$THIRDPARTY_DIR/PopSift" ] || is_empty "$THIRDPARTY_DIR/PopSift"; then
     echo "Cloning PopSift..."
+    rm -rf "$THIRDPARTY_DIR/PopSift"
     git clone https://github.com/PopSift/pop-sift.git "$THIRDPARTY_DIR/PopSift"
 else
     echo "PopSift already present."
 fi
 
-# 3. Generate PopSift Config Header
+# 4. Generate PopSift Config Header
 # We must generate this manually because we bypass CMake.
 POPSIFT_CONFIG_FILE="$THIRDPARTY_DIR/PopSift/src/popsift/sift_config.h"
 echo "Generating $POPSIFT_CONFIG_FILE..."
@@ -47,15 +63,13 @@ cat > "$POPSIFT_CONFIG_FILE" <<EOF
 #define POPSIFT_DISABLE_GRID_FILTER()     0
 EOF
 
-# 4. Build Extensions
+# 5. Build Extensions
 echo "=== Building C++ GPU Extensions ==="
 cd modules
 if command -v nvcc >/dev/null 2>&1; then
     python3 setup_translation_gpu_cpp.py build_ext --inplace
 else
     echo "WARNING: 'nvcc' not found. GPU extensions will likely fail to build or will be built without CUDA."
-    # We attempt build anyway, the setup script handles checking nvcc and skipping .cu if needed,
-    # but for SIFT/PopSift specifically, we need nvcc.
     python3 setup_translation_gpu_cpp.py build_ext --inplace || echo "Build failed (expected if no GPU/CUDA present)."
 fi
 cd ..

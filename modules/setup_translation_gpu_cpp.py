@@ -100,12 +100,16 @@ if cudasift_root.exists():
     cudasift_sources.extend([str(p) for p in cudasift_root.glob("*.cu")])
     cudasift_sources.extend([str(p) for p in cudasift_root.glob("*.cpp") if "mainSift" not in p.name])
 
-# --- 3rdparty: PopSift ---
+# --- 3rdparty: PopSift & Popcorn ---
 popsift_root = Path(__file__).parent / "3rdparty" / "PopSift"
+popcorn_root = Path(__file__).parent / "3rdparty" / "Popcorn"
 popsift_sources = []
-if popsift_root.exists():
+if popsift_root.exists() and popcorn_root.exists():
     popsift_src_dir = popsift_root / "src"
+    popcorn_src_dir = popcorn_root / "src"
+
     opencv_flags["include_dirs"].append(str(popsift_src_dir))
+    opencv_flags["include_dirs"].append(str(popcorn_src_dir))
 
     popsift_subdir = popsift_src_dir / "popsift"
     if popsift_subdir.exists():
@@ -141,9 +145,7 @@ class CUDA_build_ext(build_ext_pybind11):
                         if arg.startswith("-D"):
                             nvcc_args.append(arg)
 
-                    # PopSift specific: it uses __constant__ memory heavily
-                    # We might need architecture flags if it fails, but leaving generic for now.
-                    # It also uses C++11 features in CUDA code.
+                    # PopSift requires C++14 or newer for CUDA
                     nvcc_args.append("--std=c++14")
 
                     print(f"Compiling CUDA source: {' '.join(['nvcc'] + nvcc_args)}")
@@ -158,7 +160,7 @@ class CUDA_build_ext(build_ext_pybind11):
 # Define _translation_gpu_cpp with added sources
 translation_sources = [str(Path(__file__).parent / "translation_gpu_cpp.cpp")]
 translation_sources.extend(cudasift_sources)
-translation_sources.extend(popsift_sources) # Now including PopSift!
+translation_sources.extend(popsift_sources)
 
 extra_compile_args = opencv_flags["extra_compile_args"][:]
 if cudasift_sources:

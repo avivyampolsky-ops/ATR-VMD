@@ -22,6 +22,7 @@
 #include "popsift/popsift.h"
 #include "popsift/features.h"
 #include "popsift/common/device_prop.h"
+#include <memory> // for unique_ptr
 #endif
 
 #include <algorithm>
@@ -673,8 +674,8 @@ private:
     }
 
     void record_reference_event(const std::string &reason) {
-        (void)reason;
         reference_events_.push_back(static_cast<int>(frame_count_ + 1));
+        last_reference_reason_ = reason;
     }
 
     static std::chrono::steady_clock::time_point now() {
@@ -1205,17 +1206,6 @@ protected:
         last_reference_reason_ = reason;
     }
 
-    virtual void set_reference_from_features(
-        const cv::Mat &gray,
-        const std::vector<cv::KeyPoint> &kp,
-        const cv::Mat &descriptors
-    ) {
-        gray_ref_ = gray;
-        kp_ref_ = kp;
-        descriptors_ref_ = descriptors.clone();
-    }
-
-
     bool input_is_gray_ = true;
     float downscale_factor_ = 1.0f;
     float knn_ratio_ = 0.75f;
@@ -1277,6 +1267,11 @@ public:
         }
     }
 
+#ifdef ENABLE_POPSIFT
+    // Persistent PopSift instance to avoid re-allocation overhead
+    std::unique_ptr<PopSift> popsift_;
+#endif
+
 // Overrides for CudaSift integration
 #ifdef ENABLE_CUDASIFT
     // removed set_reference_mat_internal override to avoid redefinition error.
@@ -1336,15 +1331,16 @@ public:
              int w = gray_norm.cols;
              int h = gray_norm.rows;
 
-             popsift::Config config;
-             config.setFilterMaxExtrema(2048);
-             config.setLogMode(popsift::Config::LogMode::None);
+             // Lazy initialization of persistent PopSift instance
+             if (!popsift_) {
+                 popsift::Config config;
+                 config.setFilterMaxExtrema(2048);
+                 config.setLogMode(popsift::Config::LogMode::None);
+                 popsift_.reset(new PopSift(config, popsift::Config::ExtractingMode, PopSift::FloatImages));
+             }
 
-             // Create PopSift instance
-             // PopSift destructor releases resources
-             PopSift pop(config, popsift::Config::ExtractingMode, PopSift::FloatImages);
-
-             SiftJob* job = pop.enqueue(w, h, (float*)gray_norm.data);
+             // Reuse existing instance
+             SiftJob* job = popsift_->enqueue(w, h, (float*)gray_norm.data);
              if (!job) {
                  return;
              }

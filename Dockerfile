@@ -1,12 +1,19 @@
 # Base image for Jetson Orin (JetPack 6.x / L4T 36.x)
-# We use the official L4T PyTorch image which usually includes CUDA and OpenCV.
-FROM nvcr.io/nvidia/l4t-pytorch:r36.2.0-pth2.3-py3
+# We use dustynv/l4t-pytorch which is the standard for Jetson containers.
+# Defaulting to r36.4.0 (JetPack 6.2) as requested.
+# If this tag is unavailable, users can override via --build-arg BASE_IMAGE=...
+ARG BASE_IMAGE=dustynv/l4t-pytorch:r36.4.0
+FROM ${BASE_IMAGE}
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
+# Ensure CUDA compiler is in PATH (standard location on Jetson)
+ENV PATH=/usr/local/cuda/bin:${PATH}
 ENV PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig
 
 # Install system dependencies
+# Note: 'python3-opencv' from apt might be CPU-only.
+# dustynv images often come with OpenCV installed. We install dev headers.
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -14,12 +21,12 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-dev \
     libopencv-dev \
-    python3-opencv \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-RUN pip3 install --upgrade pip
+# We check if pip is installed/upgraded
+RUN pip3 install --upgrade pip || true
 RUN pip3 install \
     numpy \
     pyyaml \
