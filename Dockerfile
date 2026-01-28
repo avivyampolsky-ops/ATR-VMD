@@ -1,7 +1,5 @@
 # Base image for Jetson Orin (JetPack 6.x / L4T 36.x)
-# We use the official L4T PyTorch image which usually includes CUDA and OpenCV,
-# or we could use dustynv/opencv.
-# Let's use a base that definitely has CUDA toolkit.
+# We use the official L4T PyTorch image which usually includes CUDA and OpenCV.
 FROM nvcr.io/nvidia/l4t-pytorch:r36.2.0-pth2.3-py3
 
 # Set environment variables
@@ -21,7 +19,6 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-# Note: numpy might already be installed in the base image, but we ensure requirements
 RUN pip3 install --upgrade pip
 RUN pip3 install \
     numpy \
@@ -36,11 +33,10 @@ WORKDIR /app
 # Copy project files
 COPY . /app
 
-# Build the C++ extensions with CUDA support
-# We assume the base image provides 'nvcc' in the path.
-# The 'l4t-pytorch' image typically has CUDA toolkit.
-RUN cd modules && \
-    python3 setup_translation_gpu_cpp.py build_ext --inplace
+# Setup dependencies (clone CudaSift/PopSift) and build extensions
+# We make the script executable and run it.
+RUN chmod +x setup_dependencies.sh && \
+    ./setup_dependencies.sh
 
 # Default command
 CMD ["python3", "main.py"]
