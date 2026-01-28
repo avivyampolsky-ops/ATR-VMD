@@ -14,6 +14,7 @@ ENV PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfi
 # Install system dependencies
 # Note: 'python3-opencv' from apt might be CPU-only.
 # dustynv images often come with OpenCV installed. We install dev headers.
+# Added libopencv-contrib-dev for xfeatures2d support
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -21,6 +22,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-dev \
     libopencv-dev \
+    libopencv-contrib-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
