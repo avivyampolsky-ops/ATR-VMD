@@ -21,7 +21,16 @@ else
     echo "CudaSift already present."
 fi
 
-# 2. Fetch PopSift (using alicevision repo)
+# 2. Fetch Popcorn (Required by PopSift)
+if [ ! -d "$THIRDPARTY_DIR/Popcorn" ] || is_empty "$THIRDPARTY_DIR/Popcorn"; then
+    echo "Cloning Popcorn..."
+    rm -rf "$THIRDPARTY_DIR/Popcorn"
+    git clone https://github.com/PopSift/popcorn.git "$THIRDPARTY_DIR/Popcorn"
+else
+    echo "Popcorn already present."
+fi
+
+# 3. Fetch PopSift
 if [ ! -d "$THIRDPARTY_DIR/PopSift" ] || is_empty "$THIRDPARTY_DIR/PopSift"; then
     echo "Cloning PopSift..."
     rm -rf "$THIRDPARTY_DIR/PopSift"
@@ -30,7 +39,7 @@ else
     echo "PopSift already present."
 fi
 
-# 3. Generate PopSift Config Header
+# 4. Generate PopSift Config Header
 POPSIFT_CONFIG_FILE="$THIRDPARTY_DIR/PopSift/src/popsift/sift_config.h"
 echo "Generating $POPSIFT_CONFIG_FILE..."
 mkdir -p "$(dirname "$POPSIFT_CONFIG_FILE")"
@@ -53,7 +62,11 @@ cat > "$POPSIFT_CONFIG_FILE" <<EOF
 #define POPSIFT_DISABLE_GRID_FILTER()     0
 EOF
 
-# 4. Build Extensions
+# Debug: Find xfeatures2d.hpp to help diagnose build issues
+echo "Debugging: Searching for xfeatures2d.hpp..."
+find /usr -name "xfeatures2d.hpp" || true
+
+# 5. Build Extensions
 echo "=== Building C++ GPU Extensions ==="
 cd modules
 if command -v nvcc >/dev/null 2>&1; then

@@ -7,7 +7,11 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/flann.hpp>
+// Conditionally include xfeatures2d (FAST_BRIEF support)
+#if __has_include(<opencv2/xfeatures2d.hpp>)
 #include <opencv2/xfeatures2d.hpp>
+#define HAVE_XFEATURES2D
+#endif
 #include <opencv2/cudaarithm.hpp>
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/cudawarping.hpp>
@@ -674,8 +678,8 @@ private:
     }
 
     void record_reference_event(const std::string &reason) {
+        (void)reason;
         reference_events_.push_back(static_cast<int>(frame_count_ + 1));
-        last_reference_reason_ = reason;
     }
 
     static std::chrono::steady_clock::time_point now() {
@@ -970,6 +974,7 @@ protected:
     virtual void extract_features(const cv::Mat &gray,
                           std::vector<cv::KeyPoint> &kps,
                           cv::Mat &descriptors) {
+#ifdef HAVE_XFEATURES2D
         if (feature_type_ == "FAST_BRIEF") {
             if (!fast_detector_ || !descriptor_extractor_) {
                 throw std::runtime_error("FAST_BRIEF requires xfeatures2d.");
@@ -983,7 +988,9 @@ protected:
                 kps.resize(500);
             }
             descriptor_extractor_->compute(gray, kps, descriptors);
-        } else if (feature_extractor_) {
+        } else
+#endif
+        if (feature_extractor_) {
             feature_extractor_->detectAndCompute(gray, cv::noArray(), kps, descriptors);
         }
     }
