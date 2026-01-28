@@ -4,7 +4,8 @@ set -e
 IMAGE_NAME="atr-vmd-jetson"
 
 echo "=== Building Docker Image for Jetson Orin (JetPack 6.2.1) ==="
-docker build -t $IMAGE_NAME .
+# Use host network to avoid DNS issues during build (apt-get update failures)
+docker build --network=host -t $IMAGE_NAME .
 
 echo "=== Build Complete ==="
 echo "You can now run the container with:"
