@@ -23,7 +23,31 @@ else
     echo "PopSift already present."
 fi
 
-# 3. Build Extensions
+# 3. Generate PopSift Config Header
+# We must generate this manually because we bypass CMake.
+POPSIFT_CONFIG_FILE="$THIRDPARTY_DIR/PopSift/src/popsift/sift_config.h"
+echo "Generating $POPSIFT_CONFIG_FILE..."
+mkdir -p "$(dirname "$POPSIFT_CONFIG_FILE")"
+cat > "$POPSIFT_CONFIG_FILE" <<EOF
+/*
+ * Copyright 2016, Simula Research Laboratory
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
+#pragma once
+
+#define POPSIFT_IS_DEFINED(F)   F() == 1
+#define POPSIFT_IS_UNDEFINED(F) F() == 0
+
+// Standard configs for typical CUDA card
+#define POPSIFT_HAVE_SHFL_DOWN_SYNC()     1
+#define POPSIFT_DISABLE_GRID_FILTER()     0
+EOF
+
+# 4. Build Extensions
 echo "=== Building C++ GPU Extensions ==="
 cd modules
 if command -v nvcc >/dev/null 2>&1; then

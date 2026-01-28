@@ -1205,6 +1205,17 @@ protected:
         last_reference_reason_ = reason;
     }
 
+    virtual void set_reference_from_features(
+        const cv::Mat &gray,
+        const std::vector<cv::KeyPoint> &kp,
+        const cv::Mat &descriptors
+    ) {
+        gray_ref_ = gray;
+        kp_ref_ = kp;
+        descriptors_ref_ = descriptors.clone();
+    }
+
+
     bool input_is_gray_ = true;
     float downscale_factor_ = 1.0f;
     float knn_ratio_ = 0.75f;
@@ -1266,20 +1277,16 @@ public:
         }
     }
 
+// Overrides for CudaSift integration
 #ifdef ENABLE_CUDASIFT
-    // Overrides for CudaSift integration
-    void set_reference_mat_internal(const cv::Mat &reference) override {
-        if (feature_type_ == "CUDA_SIFT") {
-            gray_ref_ = prepare_gray(reference);
-            extract_features(gray_ref_, kp_ref_, descriptors_ref_);
-            return;
-        }
-        HomographyTranslationCPUCpp::set_reference_mat_internal(reference);
-    }
+    // removed set_reference_mat_internal override to avoid redefinition error.
+    // Base class calls extract_features which we override below.
+#endif
 
     void extract_features(const cv::Mat &gray,
                           std::vector<cv::KeyPoint> &kps,
                           cv::Mat &descriptors) override {
+#ifdef ENABLE_CUDASIFT
         if (feature_type_ == "CUDA_SIFT") {
             cv::Mat gray_f;
             if (gray.type() != CV_32F) {
@@ -1319,15 +1326,9 @@ public:
             FreeSiftData(siftData);
             return;
         }
-
-        HomographyTranslationCPUCpp::extract_features(gray, kps, descriptors);
-    }
 #endif
 
 #ifdef ENABLE_POPSIFT
-    void extract_features(const cv::Mat &gray,
-                          std::vector<cv::KeyPoint> &kps,
-                          cv::Mat &descriptors) override {
         if (feature_type_ == "POP_SIFT") {
              cv::Mat gray_norm;
              gray.convertTo(gray_norm, CV_32F, 1.0/255.0); // 0..1 range for PopSift FloatImages
@@ -1349,17 +1350,9 @@ public:
              }
 
              popsift::FeaturesHost* features = job->getHost();
-             // Assuming popsift::FeaturesHost exposes a way to iterate.
-             // From features.h:
-             //   inline F_iterator       begin()       { return _ext; }
-             //   inline F_iterator       end()         { return &_ext[size()]; }
-             //   inline Feature*    getFeatures()    { return _ext; }
 
              int num_features = features->getFeatureCount();
              kps.clear();
-             // PopSift returns multiple descriptors per feature (orientations).
-             // Feature struct has: int num_ori; Descriptor* desc[ORIENTATION_MAX_COUNT];
-             // We flatten this to OpenCV structure (1 kp per orientation).
 
              std::vector<float> desc_list; // temp storage
              desc_list.reserve(num_features * 128); // approximation
@@ -1374,10 +1367,6 @@ public:
                      kp.response = 0.0f; // Score?
                      kps.push_back(kp);
 
-                     // Descriptor is 128 floats
-                     // feat.desc[i] is Descriptor* (pointer to struct? No, typedef likely)
-                     // Header said: struct Descriptor; // float features[128];
-                     // So feat.desc[i] is pointer to 128 floats.
                      float* d = (float*)feat.desc[i];
                      desc_list.insert(desc_list.end(), d, d + 128);
                  }
@@ -1391,9 +1380,9 @@ public:
              delete job; // SiftJob destructor releases resources? Yes.
              return;
         }
+#endif
         HomographyTranslationCPUCpp::extract_features(gray, kps, descriptors);
     }
-#endif
 };
 
 PYBIND11_MODULE(_translation_gpu_cpp, m) {
