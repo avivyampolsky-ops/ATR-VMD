@@ -27,7 +27,9 @@ RUN apt-get update && apt-get install -y \
 # Install Python dependencies
 # We check if pip is installed/upgraded
 RUN pip3 install --upgrade pip || true
-RUN pip3 install \
+# We explicitly add standard PyPI to ensure generic packages like PyYAML can be found
+# even if the Jetson-specific index is unreachable.
+RUN pip3 install --index-url https://pypi.org/simple --extra-index-url https://pypi.ngc.nvidia.com \
     numpy \
     pyyaml \
     tqdm \
