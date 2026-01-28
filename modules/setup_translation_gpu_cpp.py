@@ -56,22 +56,26 @@ def _pkg_config_flags(package: str) -> dict:
 opencv_flags = _pkg_config_flags("opencv4")
 if not opencv_flags["include_dirs"]:
     opencv_flags = _pkg_config_flags("opencv")
-env_include = Path(sys.prefix) / "include" / "opencv4"
-if env_include.exists():
-    opencv_flags["include_dirs"].insert(0, str(env_include))
-if "/usr/include/opencv4" not in opencv_flags["include_dirs"]:
-    if Path("/usr/include/opencv4/opencv2/core.hpp").exists():
-        opencv_flags["include_dirs"].append("/usr/include/opencv4")
+
+# FALLBACK: Explicitly check standard locations if pkg-config fails or misses them
+potential_includes = [
+    "/usr/include/opencv4",
+    "/usr/local/include/opencv4",
+    "/usr/include",
+    "/usr/local/include",
+    str(Path(sys.prefix) / "include" / "opencv4")
+]
+
+for inc in potential_includes:
+    if os.path.isdir(inc):
+        if inc not in opencv_flags["include_dirs"]:
+            print(f"Adding include path: {inc}")
+            opencv_flags["include_dirs"].append(inc)
+
 env_lib = Path(sys.prefix) / "lib"
 if env_lib.exists():
     opencv_flags["library_dirs"].insert(0, str(env_lib))
     opencv_flags["extra_link_args"].append(f"-Wl,-rpath,{env_lib}")
-
-if env_include.exists():
-    opencv_flags["include_dirs"] = [
-        d for d in opencv_flags["include_dirs"]
-        if d not in ("/usr/include/opencv4", "/usr/local/include/opencv4")
-    ]
 
 required_opencv_libs = [
     "opencv_core",
