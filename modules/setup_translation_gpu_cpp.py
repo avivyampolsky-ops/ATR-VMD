@@ -101,7 +101,9 @@ cudasift_root = Path(__file__).parent / "3rdparty" / "CudaSift"
 cudasift_sources = []
 if cudasift_root.exists():
     opencv_flags["include_dirs"].append(str(cudasift_root))
-    cudasift_sources.extend([str(p) for p in cudasift_root.glob("*.cu")])
+    # Exclude match.cu and matching.cu as they contain x86 intrinsics (immintrin.h) incompatible with ARM64
+    # and we only use the extraction part.
+    cudasift_sources.extend([str(p) for p in cudasift_root.glob("*.cu") if "match" not in p.name])
     cudasift_sources.extend([str(p) for p in cudasift_root.glob("*.cpp") if "mainSift" not in p.name])
 
 # --- 3rdparty: PopSift & Popcorn ---
