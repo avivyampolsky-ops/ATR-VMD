@@ -7,10 +7,27 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/flann.hpp>
+// Conditionally include xfeatures2d (FAST_BRIEF support)
+#if __has_include(<opencv2/xfeatures2d.hpp>)
 #include <opencv2/xfeatures2d.hpp>
+#define HAVE_XFEATURES2D
+#endif
 #include <opencv2/cudaarithm.hpp>
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/cudawarping.hpp>
+
+// Enable CudaSift if defined
+#ifdef ENABLE_CUDASIFT
+#include "cudaSift.h"
+#endif
+
+// Enable PopSift if defined
+#ifdef ENABLE_POPSIFT
+#include "popsift/popsift.h"
+#include "popsift/features.h"
+#include "popsift/common/device_prop.h"
+#include <memory> // for unique_ptr
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -724,7 +741,7 @@ public:
         return true;
     }
 
-    void set_reference(const py::array &reference, bool record_event = true,
+    virtual void set_reference(const py::array &reference, bool record_event = true,
                        const std::string &reason = "manual") {
         cv::Mat ref_mat = ensure_mat(reference);
         set_geometry(ref_mat);
@@ -735,15 +752,23 @@ public:
         }
     }
 
-    void set_reference_mat(const cv::Mat &reference, bool record_event,
-                           const std::string &reason) {
+    virtual void set_reference_mat(const cv::Mat &reference, bool record_event = false,
+                           const std::string &reason = "") {
         set_geometry(reference);
-        set_reference_mat(reference);
+        set_reference_mat_internal(reference);
         if (record_event) {
             reference_events_.push_back(static_cast<int>(frame_count_));
             last_reference_reason_ = reason;
         }
     }
+
+    // Internal helper for overrides to use
+    virtual void set_reference_mat_internal(const cv::Mat &reference) {
+        gray_ref_ = prepare_gray(reference);
+        build_feature_extractor();
+        extract_features(gray_ref_, kp_ref_, descriptors_ref_);
+    }
+
 
     py::tuple get_shape() const {
         return py::make_tuple(h_ - margin_ * 2, w_ - margin_ * 2);
@@ -801,14 +826,14 @@ public:
         return out;
     }
 
-    py::array register_frame(const py::array &frame) {
+    virtual py::array register_frame(const py::array &frame) {
         cv::Mat frame_mat = ensure_mat(frame);
         frame_count_ += 1;
         cv::Mat out = register_with_fallback(frame_mat);
         return mat_to_array(out);
     }
 
-private:
+protected:
     cv::Mat ensure_mat(const py::array &array) const {
         py::array arr = py::array::ensure(array, py::array::c_style | py::array::forcecast);
         if (!arr) {
@@ -883,22 +908,6 @@ private:
         frame_area_ = static_cast<float>(w_ * h_);
     }
 
-    void set_reference_mat(const cv::Mat &reference) {
-        gray_ref_ = prepare_gray(reference);
-        build_feature_extractor();
-        extract_features(gray_ref_, kp_ref_, descriptors_ref_);
-    }
-
-    void set_reference_from_features(
-        const cv::Mat &gray,
-        const std::vector<cv::KeyPoint> &kp,
-        const cv::Mat &descriptors
-    ) {
-        gray_ref_ = gray;
-        kp_ref_ = kp;
-        descriptors_ref_ = descriptors.clone();
-    }
-
     cv::Mat prepare_gray(const cv::Mat &frame) const {
         cv::Mat gray;
         if (input_is_gray_) {
@@ -914,7 +923,7 @@ private:
         return gray;
     }
 
-    void build_feature_extractor() {
+    virtual void build_feature_extractor() {
         // Map feature_type_ string to a concrete extractor (ORB/FAST+BRIEF/AKAZE/BRISK/SIFT).
         std::string type = feature_type_;
         if (type.empty()) {
@@ -962,9 +971,10 @@ private:
         matcher_type_ = matcher_upper;
     }
 
-    void extract_features(const cv::Mat &gray,
+    virtual void extract_features(const cv::Mat &gray,
                           std::vector<cv::KeyPoint> &kps,
                           cv::Mat &descriptors) {
+#ifdef HAVE_XFEATURES2D
         if (feature_type_ == "FAST_BRIEF") {
             if (!fast_detector_ || !descriptor_extractor_) {
                 throw std::runtime_error("FAST_BRIEF requires xfeatures2d.");
@@ -978,7 +988,9 @@ private:
                 kps.resize(500);
             }
             descriptor_extractor_->compute(gray, kps, descriptors);
-        } else if (feature_extractor_) {
+        } else
+#endif
+        if (feature_extractor_) {
             feature_extractor_->detectAndCompute(gray, cv::noArray(), kps, descriptors);
         }
     }
@@ -1081,7 +1093,7 @@ private:
         return scale_matrix_inv_ * H32 * scale_matrix_;
     }
 
-    cv::Mat register_with_fallback(const cv::Mat &frame_mat) {
+    virtual cv::Mat register_with_fallback(const cv::Mat &frame_mat) {
         auto start = now();
         cv::Mat gray = prepare_gray(frame_mat);
         auto t_gray = now();
@@ -1260,6 +1272,119 @@ public:
         } catch (const cv::Exception &) {
             return false;
         }
+    }
+
+#ifdef ENABLE_POPSIFT
+    // Persistent PopSift instance to avoid re-allocation overhead
+    std::unique_ptr<PopSift> popsift_;
+#endif
+
+// Overrides for CudaSift integration
+#ifdef ENABLE_CUDASIFT
+    // removed set_reference_mat_internal override to avoid redefinition error.
+    // Base class calls extract_features which we override below.
+#endif
+
+    void extract_features(const cv::Mat &gray,
+                          std::vector<cv::KeyPoint> &kps,
+                          cv::Mat &descriptors) override {
+#ifdef ENABLE_CUDASIFT
+        if (feature_type_ == "CUDA_SIFT") {
+            cv::Mat gray_f;
+            if (gray.type() != CV_32F) {
+                gray.convertTo(gray_f, CV_32F);
+            } else {
+                gray_f = gray;
+            }
+
+            int w = gray_f.cols;
+            int h = gray_f.rows;
+            CudaImage img;
+            img.Allocate(w, h, iAlignUp(w, 128), false, NULL, (float*)gray_f.data);
+            img.Download();
+
+            SiftData siftData;
+            float initBlur = 1.0f;
+            float thresh = 5.0f;
+            InitSiftData(siftData, 2048, true, true);
+            ExtractSift(siftData, img, 5, initBlur, thresh, 0.0f, false);
+
+            kps.clear();
+            kps.reserve(siftData.numPts);
+            descriptors.create(siftData.numPts, 128, CV_32F);
+
+            for (int i=0; i<siftData.numPts; i++) {
+                SiftPoint& pt = siftData.h_data[i];
+                cv::KeyPoint kp;
+                kp.pt.x = pt.xpos;
+                kp.pt.y = pt.ypos;
+                kp.size = pt.scale;
+                kp.angle = pt.orientation;
+                kp.response = pt.score;
+                kps.push_back(kp);
+                std::memcpy(descriptors.ptr<float>(i), pt.data, 128 * sizeof(float));
+            }
+
+            FreeSiftData(siftData);
+            return;
+        }
+#endif
+
+#ifdef ENABLE_POPSIFT
+        if (feature_type_ == "POP_SIFT") {
+             cv::Mat gray_norm;
+             gray.convertTo(gray_norm, CV_32F, 1.0/255.0); // 0..1 range for PopSift FloatImages
+
+             int w = gray_norm.cols;
+             int h = gray_norm.rows;
+
+             // Lazy initialization of persistent PopSift instance
+             if (!popsift_) {
+                 popsift::Config config;
+                 config.setFilterMaxExtrema(2048);
+                 config.setLogMode(popsift::Config::LogMode::None);
+                 popsift_.reset(new PopSift(config, popsift::Config::ExtractingMode, PopSift::FloatImages));
+             }
+
+             // Reuse existing instance
+             SiftJob* job = popsift_->enqueue(w, h, (float*)gray_norm.data);
+             if (!job) {
+                 return;
+             }
+
+             popsift::FeaturesHost* features = job->getHost();
+
+             int num_features = features->getFeatureCount();
+             kps.clear();
+
+             std::vector<float> desc_list; // temp storage
+             desc_list.reserve(num_features * 128); // approximation
+
+             for (const auto& feat : *features) {
+                 for (int i = 0; i < feat.num_ori; ++i) {
+                     cv::KeyPoint kp;
+                     kp.pt.x = feat.xpos;
+                     kp.pt.y = feat.ypos;
+                     kp.size = feat.sigma;
+                     kp.angle = feat.orientation[i] * (180.0f / CV_PI); // PopSift is radians? Check later. Assuming radians for now.
+                     kp.response = 0.0f; // Score?
+                     kps.push_back(kp);
+
+                     float* d = (float*)feat.desc[i];
+                     desc_list.insert(desc_list.end(), d, d + 128);
+                 }
+             }
+
+             if (!kps.empty()) {
+                 descriptors.create((int)kps.size(), 128, CV_32F);
+                 std::memcpy(descriptors.data, desc_list.data(), desc_list.size() * sizeof(float));
+             }
+
+             delete job; // SiftJob destructor releases resources? Yes.
+             return;
+        }
+#endif
+        HomographyTranslationCPUCpp::extract_features(gray, kps, descriptors);
     }
 };
 

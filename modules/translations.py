@@ -514,6 +514,10 @@ def _feature_type_name(feature_extractor):
         return "AKAZE"
     if "BRISK" in upper:
         return "BRISK"
+    if "CUDA_SIFT" in upper:
+        return "CUDA_SIFT"
+    if "POP_SIFT" in upper:
+        return "POP_SIFT"
     return "ORB"
 
 
